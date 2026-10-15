@@ -114,10 +114,9 @@ public class EventManager {
         }
 
         Shift shift = CatERing.getInstance().getShiftManager().createShift(
-                date != null ? date : currentService.getDate(),
-                startTime,
-                endTime,
-                currentService.getLocation()
+        date != null ? date : currentService.getDate(),
+        startTime,
+        endTime
         );
 
         StaffRequest sr = new StaffRequest(currentService.getId(), shift, role, quantity);
