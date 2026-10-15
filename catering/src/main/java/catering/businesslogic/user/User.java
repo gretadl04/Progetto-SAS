@@ -17,8 +17,8 @@ public class User {
     public static enum Role {
         SERVIZIO('s'),
         CUOCO('c'),
-        CHEF('c'),
-        ORGANIZER('o'); // Ruolo aggiunto per gestire gli eventi
+        CHEF('h'),
+        ORGANIZER('o');
 
         private char id;
 
@@ -26,7 +26,11 @@ public class User {
             this.id = id;
         }
 
-        public static Role loadRoleById(char id) {
+        public char getId() {
+            return id;
+        }
+
+        public static Role getRoleById(char id) {
             for (Role r : Role.values()) {
                 if (r.id == id) return r;
             }
@@ -39,17 +43,21 @@ public class User {
     private Set<Role> roles;
 
     public User() {
-        id = 0;
-        userName = "";
-        roles = new HashSet<>();
+        this(null);
     }
+
     public User(String userName) {
-        this();
-        this.userName = userName;
+        id = 0;
+        this.userName = userName != null ? userName : "";
+        roles = new HashSet<>();
     }
 
     public boolean isChef() {
         return roles.contains(Role.CHEF);
+    }
+
+    public boolean isCook() {
+        return roles.contains(Role.CUOCO);
     }
 
     public boolean isCuoco() {
@@ -60,7 +68,6 @@ public class User {
         return roles.contains(Role.SERVIZIO);
     }
 
-    // Metodo aggiunto per verificare se l'utente è un Organizzatore
     public boolean isOrganizer() {
         return roles.contains(Role.ORGANIZER);
     }
@@ -72,18 +79,28 @@ public class User {
     public int getId() {
         return id;
     }
+
     public void setId(int id) {
         this.id = id;
     }
+
     public String getUserName() {
         return userName;
+    }
+
+    public void setUserName(String userName) {
+        this.userName = userName;
+    }
+
+    public Set<Role> getRoles() {
+        return roles;
     }
 
     public static User load(int id) {
         if (loadedUsers.containsKey(id)) return loadedUsers.get(id);
 
         User[] result = new User[1];
-        String query = "SELECT * FROM Users WHERE id = " + id;
+        String query = "SELECT * FROM Users WHERE id = ?";
         PersistenceManager.executeQuery(query, new ResultHandler() {
             @Override
             public void handle(ResultSet rs) throws SQLException {
@@ -91,17 +108,10 @@ public class User {
                 result[0].id = rs.getInt("id");
                 result[0].userName = rs.getString("username");
             }
-        });
+        }, id);
 
         if (result[0] != null) {
-            String roleQuery = "SELECT * FROM UserRoles WHERE user_id = " + id;
-            PersistenceManager.executeQuery(roleQuery, new ResultHandler() {
-                @Override
-                public void handle(ResultSet rs) throws SQLException {
-                    String role = rs.getString("role_id");
-                    result[0].roles.add(Role.loadRoleById(role.charAt(0)));
-                }
-            });
+            loadRolesForUser(result[0]);
             loadedUsers.put(id, result[0]);
         }
         return result[0];
@@ -109,19 +119,53 @@ public class User {
 
     public static User load(String username) {
         User[] result = new User[1];
-        String query = "SELECT * FROM Users WHERE username = '" + username + "'";
+        String query = "SELECT * FROM Users WHERE username = ?";
         PersistenceManager.executeQuery(query, new ResultHandler() {
             @Override
             public void handle(ResultSet rs) throws SQLException {
-                int id = rs.getInt("id");
-                result[0] = load(id);
+                result[0] = new User();
+                result[0].id = rs.getInt("id");
+                result[0].userName = rs.getString("username");
             }
-        });
+        }, username);
+
+        if (result[0] != null) {
+            loadRolesForUser(result[0]);
+            loadedUsers.put(result[0].id, result[0]);
+        }
         return result[0];
+    }
+
+    private static void loadRolesForUser(User u) {
+        String roleQuery = "SELECT * FROM UserRoles WHERE user_id = ?";
+        PersistenceManager.executeQuery(roleQuery, new ResultHandler() {
+            @Override
+            public void handle(ResultSet rs) throws SQLException {
+                String roleStr = rs.getString("role_id");
+                if (roleStr != null && !roleStr.isEmpty()) {
+                    Role r = Role.getRoleById(roleStr.charAt(0));
+                    if (r != null) u.roles.add(r);
+                }
+            }
+        }, u.id);
     }
 
     @Override
     public String toString() {
         return "User [id=" + id + ", userName=" + userName + ", roles=" + roles + "]";
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj) return true;
+        if (obj == null || getClass() != obj.getClass()) return false;
+        User other = (User) obj;
+        if (this.id > 0 && other.id > 0) return this.id == other.id;
+        return this.userName != null && this.userName.equals(other.userName);
+    }
+
+    @Override
+    public int hashCode() {
+        return id > 0 ? Integer.hashCode(id) : (userName != null ? userName.hashCode() : 0);
     }
 }
