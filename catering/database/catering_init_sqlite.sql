@@ -64,16 +64,50 @@ CREATE TABLE
     );
 
 -- Tables with simple dependencies
-CREATE TABLE
-    `Events` (
-        `id` INTEGER PRIMARY KEY AUTOINCREMENT,
-        `name` TEXT,
-        `date_start` DATE,
-        `date_end` DATE,
-        `chef_id` INTEGER NOT NULL,
-        `location` TEXT,
-        `state` TEXT
-    );
+DROP TABLE IF EXISTS `Events`;
+CREATE TABLE `Events` (
+    `id` INTEGER PRIMARY KEY AUTOINCREMENT,
+    `name` TEXT,
+    `date_start` DATE,
+    `date_end` DATE,
+    `chef_id` INTEGER DEFAULT 0,
+    `location` TEXT,
+    `state` TEXT DEFAULT 'in lavorazione',
+    `notes` TEXT,
+    `documentation` TEXT,
+    `is_recurring` INTEGER DEFAULT 0,
+    `recurrence_frequency` TEXT,
+    `recurrence_end` DATE
+);
+
+DROP TABLE IF EXISTS `EventInstances`;
+CREATE TABLE `EventInstances` (
+    `id` INTEGER PRIMARY KEY AUTOINCREMENT,
+    `event_id` INTEGER NOT NULL,
+    `date` DATE,
+    `state` TEXT DEFAULT 'programmato',
+    `is_modified` INTEGER DEFAULT 0,
+    `custom_location` TEXT
+);
+
+DROP TABLE IF EXISTS `StaffRequests`;
+CREATE TABLE `StaffRequests` (
+    `id` INTEGER PRIMARY KEY AUTOINCREMENT,
+    `service_id` INTEGER NOT NULL,
+    `shift_id` INTEGER NOT NULL,
+    `role` TEXT NOT NULL,
+    `quantity` INTEGER NOT NULL,
+    `assigned_user_id` INTEGER DEFAULT 0
+);
+
+DROP TABLE IF EXISTS `MenuProposals`;
+CREATE TABLE `MenuProposals` (
+    `id` INTEGER PRIMARY KEY AUTOINCREMENT,
+    `service_id` INTEGER NOT NULL,
+    `menu_id` INTEGER NOT NULL,
+    `approved` INTEGER DEFAULT 0,
+    `proposed_modifications` TEXT
+);
 
 CREATE TABLE
     `Menus` (
