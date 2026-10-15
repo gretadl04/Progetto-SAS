@@ -4,414 +4,273 @@ import java.sql.Date;
 import java.sql.Time;
 import java.util.ArrayList;
 
+import catering.businesslogic.CatERing;
 import catering.businesslogic.UseCaseLogicException;
 import catering.businesslogic.menu.Menu;
+import catering.businesslogic.shift.Shift;
 import catering.businesslogic.user.User;
 
-/**
- * EventManager handles all operations related to events and services in the
- * CatERing system.
- * It manages event creation, modification, and deletion, as well as service
- * management and menu assignments for services.
- */
 public class EventManager {
 
-
-    private ArrayList<EventReceiver> eventReceivers;
-    private Event selectedEvent;
+    private Event currentEvent;
     private Service currentService;
+    private ArrayList<EventReceiver> eventReceivers;
 
-    /**
-     * Constructor initializes the event receivers list
-     */
     public EventManager() {
-        eventReceivers = new ArrayList<>();
+        this.eventReceivers = new ArrayList<>();
     }
 
-    /**
-     * Adds an event receiver to be notified of events changes
-     * 
-     * @param receiver The event receiver to add
-     */
-    public void addEventReceiver(EventReceiver receiver) {
-        if (receiver != null && !eventReceivers.contains(receiver)) {
-            eventReceivers.add(receiver);
+    private void checkOrganizerRole() throws UseCaseLogicException {
+        User user = CatERing.getInstance().getUserManager().getCurrentUser();
+        if (user == null || !user.isOrganizer()) {
+            throw new UseCaseLogicException("Operazione consentita solo a un Organizzatore.");
         }
     }
 
-    /**
-     * Removes an event receiver
-     * 
-     * @param receiver The event receiver to remove
-     */
-    public void removeEventReceiver(EventReceiver receiver) {
-        eventReceivers.remove(receiver);
-    }
-
-    /**
-     * Gets all events in the system
-     * 
-     * @return List of all events
-     */
-    public ArrayList<Event> getEvents() {
-        return Event.loadAllEvents();
-    }
-
-    /**
-     * Sets the current service based on service ID
-     * 
-     * @param serviceId ID of the service to select
-     */
-    public void setSelectedServiceIndex(int serviceId) {
-        if (selectedEvent != null && selectedEvent.getServices() != null) {
-            for (Service si : selectedEvent.getServices()) {
-                if (si.getId() == serviceId) {
-                    currentService = si;
-                    return;
-                }
-            }
+    // Passo 1: Creazione nuovo evento
+    public Event createEvent(String name, String location, Date dateStart, Date dateEnd) throws UseCaseLogicException {
+        checkOrganizerRole();
+        if (dateStart != null && dateEnd != null && dateEnd.before(dateStart)) {
+            throw new UseCaseLogicException("La data di fine non può precedere la data di inizio.");
         }
-        // If service not found, currentService remains unchanged
-    }
+        Event e = new Event(name);
+        e.setLocation(location);
+        e.setDateStart(dateStart);
+        e.setDateEnd(dateEnd);
+        e.setState("in lavorazione");
 
-    /**
-     * Sets the current service directly
-     * 
-     * @param service Service to set as current
-     */
-    public void setCurrentService(Service service) {
-        this.currentService = service;
-    }
-
-    /**
-     * Gets the current service
-     * 
-     * @return Current service or null if none selected
-     */
-    public Service getCurrentService() {
-        return this.currentService;
-    }
-
-    /**
-     * Gets the selected event
-     * 
-     * @return Selected event or null if none selected
-     */
-    public Event getSelectedEvent() {
-        return selectedEvent;
-    }
-
-    /**
-     * Sets the selected event
-     * 
-     * @param event Event to select
-     */
-    public void setSelectedEvent(Event event) {
-        this.selectedEvent = event;
-    }
-
-    /**
-     * Creates a new event with the given details
-     * 
-     * @param name      Event name
-     * @param dateStart Start date
-     * @param dateEnd   End date (can be null)
-     * @param organizer User organizing the event
-     * @return The newly created event
-     */
-    public Event createEvent(String name, Date dateStart, Date dateEnd, User chef) {
-        try {
-
-            Event event = new Event();
-            event.setName(name);
-            event.setDateStart(dateStart);
-            event.setDateEnd(dateEnd);
-            event.setChef(chef);
-
-            // Notify all receivers (EventPersistence will persist)
-            notifyEventCreated(event);
-
-            // Set as selected event
-            this.selectedEvent = event;
-            this.currentService = null;
-
-            return event;
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    public void selectEvent(Event event) {
-        this.selectedEvent = event;
+        this.currentEvent = e;
         this.currentService = null;
+        notifyEventCreated(e);
+        return e;
     }
 
-    public Service createService(String name, Date date, Time timeStart, Time timeEnd, String location)
-            throws UseCaseLogicException {
-        if (selectedEvent == null) {
-            String msg = "Cannot create service: no event selected";
-            throw new UseCaseLogicException(msg);
+    // Metodo compatibile col template base se presente
+    public Event createEvent(String name, Date dateStart, Date dateEnd, User chef) throws UseCaseLogicException {
+        Event e = createEvent(name, "Sede principale", dateStart, dateEnd);
+        if (chef != null) {
+            assignChef(chef);
         }
-
-        try {
-
-            Service service = new Service();
-            service.setName(name);
-            service.setDate(date);
-            service.setTimeStart(timeStart);
-            service.setTimeEnd(timeEnd);
-            service.setLocation(location);
-            service.setEventId(selectedEvent.getId());
-
-            // Notify all receivers (EventPersistence will persist)
-            notifyServiceCreated(service);
-
-            // Add to event and set as current service
-            selectedEvent.addService(service);
-            this.currentService = service;
-
-            return service;
-        } catch (Exception e) {
-            return null;
-        }
+        return e;
     }
 
-    /**
-     * Modifies an existing event
-     * 
-     * @param eventId ID of the event to modify
-     * @param name    New name for the event
-     * @param date    New date for the event
-     */
-    public void modifyEvent(int eventId, String name, Date date) {
-        Event event = Event.loadById(eventId);
-        if (event != null) {
-            event.setName(name);
-            event.setDateStart(date);
-
-            // Notify all receivers
-            notifyEventModified(event);
-
-            // Update selected event if it's the same one
-            if (selectedEvent != null && selectedEvent.getId() == eventId) {
-                this.selectedEvent = event;
-            }
+    // Estensione 1a: Selezione di un evento esistente
+    public Event selectEvent(Event e) throws UseCaseLogicException {
+        checkOrganizerRole();
+        if (e == null) {
+            throw new UseCaseLogicException("Evento non valido.");
         }
+        this.currentEvent = e;
+        return this.currentEvent;
     }
 
-    /**
-     * Modifies a service
-     * 
-     * @param serviceId ID of the service to modify
-     * @param name      New name for the service
-     * @param date      New date for the service
-     * @param location  New location for the service
-     * @param menuId    ID of the menu to assign (0 for no menu)
-     * @return The modified service, or null if not found
-     */
-    public Service modifyService(int serviceId, String name, Date date, String location, int menuId) {
-        // First try to find service in the current event's services list
-        Service service = findServiceById(serviceId);
-
-        if (service != null) {
-            // Update service properties
-            service.setName(name);
-            service.setDate(date);
-            service.setLocation(location);
-
-            // Handle menu assignment if needed
-            if (menuId > 0 && (service.getMenuId() == 0 || service.getMenuId() != menuId)) {
-                try {
-                    Menu menu = Menu.load(menuId);
-                    if (menu != null) {
-                        service.setMenu(menu);
-                    }
-                } catch (Exception e) {
-                    System.err.println("Error loading menu: " + e.getMessage());
-                }
-            }
-
-            // Notify all receivers
-            notifyServiceModified(service);
-
-            // Update current service reference if this is the current service
-            if (currentService != null && currentService.getId() == serviceId) {
-                currentService = service;
-            }
+    // Passo 3: Assegnazione Chef all'evento
+    public void assignChef(User chef) throws UseCaseLogicException {
+        checkOrganizerRole();
+        if (currentEvent == null) {
+            throw new UseCaseLogicException("Nessun evento selezionato.");
         }
-
-        return service;
+        if (chef == null || !chef.isChef()) {
+            throw new UseCaseLogicException("L'utente indicato non ha il ruolo di Chef.");
+        }
+        currentEvent.setChef(chef);
+        notifyEventUpdated(currentEvent);
     }
 
-    /**
-     * Deletes a service by its ID
-     * 
-     * @param serviceId ID of the service to delete
-     * @return true if deleted successfully, false otherwise
-     */
-    public boolean deleteService(int serviceId) {
-        try {
-            if (selectedEvent == null) {
-                return false;
-            }
-
-            Service serviceToDelete = findServiceById(serviceId);
-            if (serviceToDelete == null) {
-                return false;
-            }
-
-
-            selectedEvent.removeService(serviceToDelete);
-
-            // Clear current service if it was the one deleted
-            if (currentService != null && currentService.getId() == serviceId) {
-                currentService = null;
-            }
-
-            // Notify all receivers (EventPersistence will delete from DB)
-            notifyServiceDeleted(serviceToDelete);
-
-            return true;
-        } catch (Exception e) {
-            return false;
+    // Passo 5: Definizione di un servizio
+    public Service createService(String name, Date date, Time timeStart, Time timeEnd, String location) throws UseCaseLogicException {
+        checkOrganizerRole();
+        if (currentEvent == null) {
+            throw new UseCaseLogicException("Nessun evento in corso di definizione.");
         }
+        Service s = new Service(name);
+        s.setEventId(currentEvent.getId());
+        s.setDate(date != null ? date : currentEvent.getDateStart());
+        s.setTimeStart(timeStart);
+        s.setTimeEnd(timeEnd);
+        s.setLocation(location != null ? location : currentEvent.getLocation());
+
+        currentEvent.addService(s);
+        this.currentService = s;
+        notifyServiceCreated(currentEvent, s);
+        return s;
     }
 
-    /**
-     * Deletes an event and all its associated services
-     * 
-     * @param eventId ID of the event to delete
-     * @return true if deleted successfully, false otherwise
-     */
-    public boolean deleteEvent(int eventId) {
-        try {
-            Event eventToDelete = Event.loadById(eventId);
-            if (eventToDelete == null) {
-                return false;
-            }
-
-
-            // Clear references if this was the selected event
-            if (selectedEvent != null && selectedEvent.getId() == eventId) {
-                selectedEvent = null;
-                currentService = null;
-            }
-
-            // Notify all receivers (EventPersistence will delete from DB)
-            notifyEventDeleted(eventToDelete);
-
-            return true;
-        } catch (Exception e) {
-            return false;
-        }
+    // Metodo rapido per aggiungere un servizio indicando solo la tipologia (come da SSD/DSD)
+    public Service addService(String serviceType) throws UseCaseLogicException {
+        return createService(serviceType, currentEvent != null ? currentEvent.getDateStart() : null,
+                Time.valueOf("12:00:00"), Time.valueOf("15:00:00"),
+                currentEvent != null ? currentEvent.getLocation() : null);
     }
 
-    /**
-     * Assigns a menu to the current service
-     * 
-     * @param menu The menu to assign
-     * @throws UseCaseLogicException if no event or service is selected
-     */
-    public void assignMenu(Menu menu) throws UseCaseLogicException {
-        if (selectedEvent == null) {
-            String msg = "Cannot assign menu: no event selected";
-            throw new UseCaseLogicException(msg);
+    // Passo 7: Definisce turno e richiede il personale specificando ruolo e quantità
+    public StaffRequest addShiftAndRequestStaff(Date date, Time startTime, Time endTime, String role, int quantity) throws UseCaseLogicException {
+        checkOrganizerRole();
+        if (currentEvent == null || currentService == null) {
+            throw new UseCaseLogicException("Devi prima selezionare un evento e un servizio.");
+        }
+        if (quantity <= 0 || role == null || role.trim().isEmpty()) {
+            throw new UseCaseLogicException("Ruolo e quantità (>0) sono obbligatori.");
         }
 
-        if (currentService == null) {
-            String msg = "Cannot assign menu: no service selected";
-            throw new UseCaseLogicException(msg);
-        }
+        Shift shift = CatERing.getInstance().getShiftManager().createShift(
+                date != null ? date : currentService.getDate(),
+                startTime,
+                endTime,
+                currentService.getLocation()
+        );
 
-
-        currentService.setMenu(menu);
-
-        // Notify all receivers (EventPersistence will persist)
-        notifyMenuAssigned(currentService, menu);
+        StaffRequest sr = new StaffRequest(currentService.getId(), shift, role, quantity);
+        currentService.addStaffRequest(sr);
+        notifyStaffRequested(currentService, sr);
+        return sr;
     }
 
-    /**
-     * Removes the menu from the current service
-     * 
-     * @return true if removed successfully, false if no service selected
-     */
-    public boolean removeMenu() {
-        if (currentService == null) {
-            return false;
+    // Passo 9: Conferma dell'evento
+    public void confirmEvent() throws UseCaseLogicException {
+        checkOrganizerRole();
+        if (currentEvent == null) {
+            throw new UseCaseLogicException("Nessun evento in corso.");
         }
+        currentEvent.setState("programmato");
+        notifyEventUpdated(currentEvent);
+    }
 
-        currentService.removeMenu();
+    // Estensione 1b: Definizione ricorrenza
+    public void defineRecurrence(String frequency, Date endRecurrence) throws UseCaseLogicException {
+        checkOrganizerRole();
+        if (currentEvent == null) {
+            throw new UseCaseLogicException("Nessun evento in corso.");
+        }
+        if (endRecurrence == null || (currentEvent.getDateStart() != null && endRecurrence.before(currentEvent.getDateStart()))) {
+            throw new UseCaseLogicException("Data di fine ricorrenza non valida.");
+        }
+        currentEvent.generateRecurrenceInstances(frequency, endRecurrence);
+        notifyEventUpdated(currentEvent);
+    }
 
-        // Notify all receivers
-        notifyMenuRemoved(currentService);
+    // Estensione 1b.1: Modifica / Annullamento di una singola istanza o di tutte le istanze della ricorrenza
+    public void modifyRecurrenceEvents(EventInstance targetInstance, boolean applyToAll, String newLocation, String newState) throws UseCaseLogicException {
+        checkOrganizerRole();
+        if (currentEvent == null || !currentEvent.isRecurring()) {
+            throw new UseCaseLogicException("L'evento corrente non è un evento ricorrente.");
+        }
+        if (applyToAll) {
+            if (newLocation != null) currentEvent.setLocation(newLocation);
+            if (newState != null) currentEvent.setState(newState);
+            for (EventInstance inst : currentEvent.getInstances()) {
+                if (newLocation != null) inst.setCustomLocation(newLocation);
+                if (newState != null) inst.setState(newState);
+                inst.updateInstance();
+            }
+        } else {
+            if (targetInstance == null || !currentEvent.getInstances().contains(targetInstance)) {
+                throw new UseCaseLogicException("Istanza ricorrente non valida.");
+            }
+            if (newLocation != null) targetInstance.setCustomLocation(newLocation);
+            if (newState != null) targetInstance.setState(newState);
+            targetInstance.setModified(true);
+            targetInstance.updateInstance();
+        }
+        notifyEventUpdated(currentEvent);
+    }
 
+    // Estensione 3a: Approvazione menù proposto dallo Chef con eventuali proposte di modifica
+    public void approveMenu(Service service, Menu menu, String proposedModifications) throws UseCaseLogicException {
+        checkOrganizerRole();
+        if (currentEvent == null || service == null || !currentEvent.containsService(service)) {
+            throw new UseCaseLogicException("Servizio non appartenente all'evento corrente.");
+        }
+        if (menu == null) {
+            throw new UseCaseLogicException("Menù non valido.");
+        }
+        service.approveMenu(menu, proposedModifications);
+        notifyServiceUpdated(service);
+    }
+
+    // Estensione *a: Terminare un evento aggiungendo note e documentazione
+    public void terminateEvent(String notes, String documentation) throws UseCaseLogicException {
+        checkOrganizerRole();
+        if (currentEvent == null) {
+            throw new UseCaseLogicException("Nessun evento selezionato.");
+        }
+        if ("annullato".equalsIgnoreCase(currentEvent.getState())) {
+            throw new UseCaseLogicException("Impossibile terminare un evento già annullato.");
+        }
+        currentEvent.setState("terminato");
+        currentEvent.setNotes(notes);
+        currentEvent.setDocumentation(documentation);
+        notifyEventUpdated(currentEvent);
+    }
+
+    // Estensione *b: Annullare un evento
+    public void cancelEvent() throws UseCaseLogicException {
+        checkOrganizerRole();
+        if (currentEvent == null) {
+            throw new UseCaseLogicException("Nessun evento selezionato.");
+        }
+        if ("terminato".equalsIgnoreCase(currentEvent.getState())) {
+            throw new UseCaseLogicException("Non è possibile annullare un evento già terminato.");
+        }
+        currentEvent.setState("annullato");
+        notifyEventUpdated(currentEvent);
+    }
+
+    // Estensione *b: Eliminare un evento (a certe condizioni)
+    public boolean deleteEvent(Event e) throws UseCaseLogicException {
+        checkOrganizerRole();
+        if (e == null) {
+            throw new UseCaseLogicException("Evento non valido.");
+        }
+        if ("in corso".equalsIgnoreCase(e.getState()) || "terminato".equalsIgnoreCase(e.getState())) {
+            throw new UseCaseLogicException("Impossibile eliminare un evento in corso o già terminato.");
+        }
+        notifyEventDeleted(e);
+        if (currentEvent != null && currentEvent.getId() == e.getId()) {
+            currentEvent = null;
+            currentService = null;
+        }
         return true;
     }
 
-    /**
-     * Helper method to find a service by ID within the selected event
-     */
-    private Service findServiceById(int serviceId) {
-        if (selectedEvent == null || selectedEvent.getServices() == null) {
-            return null;
-        }
-
-        for (Service s : selectedEvent.getServices()) {
-            if (s.getId() == serviceId) {
-                return s;
-            }
-        }
-
-        return null;
+    public ArrayList<Event> getAllEvents() {
+        return Event.loadAllEvents();
     }
 
-    // Notification methods to avoid code duplication
+    public Event getCurrentEvent() { return currentEvent; }
+    public Service getCurrentService() { return currentService; }
+    public void setCurrentService(Service currentService) { this.currentService = currentService; }
 
-    private void notifyEventCreated(Event event) {
-        for (EventReceiver receiver : eventReceivers) {
-            receiver.updateEventCreated(event);
-        }
+    // Observer Pattern
+    public void addEventReceiver(EventReceiver er) {
+        if (!eventReceivers.contains(er)) eventReceivers.add(er);
     }
 
-    private void notifyEventModified(Event event) {
-        for (EventReceiver receiver : eventReceivers) {
-            receiver.updateEventModified(event);
-        }
+    public void removeEventReceiver(EventReceiver er) {
+        eventReceivers.remove(er);
     }
 
-    private void notifyEventDeleted(Event event) {
-        for (EventReceiver receiver : eventReceivers) {
-            receiver.updateEventDeleted(event);
-        }
+    private void notifyEventCreated(Event e) {
+        for (EventReceiver er : eventReceivers) er.updateEventCreated(e);
     }
 
-    private void notifyServiceCreated(Service service) {
-        for (EventReceiver receiver : eventReceivers) {
-            receiver.updateServiceCreated(selectedEvent, service);
-        }
+    private void notifyEventUpdated(Event e) {
+        for (EventReceiver er : eventReceivers) er.updateEventUpdated(e);
     }
 
-    private void notifyServiceModified(Service service) {
-        for (EventReceiver receiver : eventReceivers) {
-            receiver.updateServiceModified(service);
-        }
+    private void notifyEventDeleted(Event e) {
+        for (EventReceiver er : eventReceivers) er.updateEventDeleted(e);
     }
 
-    private void notifyServiceDeleted(Service service) {
-        for (EventReceiver receiver : eventReceivers) {
-            receiver.updateServiceDeleted(service);
-        }
+    private void notifyServiceCreated(Event e, Service s) {
+        for (EventReceiver er : eventReceivers) er.updateServiceCreated(e, s);
     }
 
-    private void notifyMenuAssigned(Service service, Menu menu) {
-        for (EventReceiver receiver : eventReceivers) {
-            receiver.updateMenuAssigned(service, menu);
-        }
+    private void notifyServiceUpdated(Service s) {
+        for (EventReceiver er : eventReceivers) er.updateServiceUpdated(s);
     }
 
-    private void notifyMenuRemoved(Service service) {
-        for (EventReceiver receiver : eventReceivers) {
-            receiver.updateMenuRemoved(service);
-        }
+    private void notifyStaffRequested(Service s, StaffRequest sr) {
+        for (EventReceiver er : eventReceivers) er.updateStaffRequested(s, sr);
     }
 }

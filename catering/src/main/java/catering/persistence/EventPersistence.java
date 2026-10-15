@@ -3,51 +3,52 @@ package catering.persistence;
 import catering.businesslogic.event.Event;
 import catering.businesslogic.event.EventReceiver;
 import catering.businesslogic.event.Service;
-import catering.businesslogic.menu.Menu;
+import catering.businesslogic.event.StaffRequest;
 
-/**
- * Persistence class for Event operations.
- * Delegates to Event and Service classes for actual persistence.
- */
 public class EventPersistence implements EventReceiver {
 
     @Override
-    public void updateEventCreated(Event event) {
-        event.saveNewEvent();
+    public void updateEventCreated(Event e) {
+        e.saveNewEvent();
     }
 
     @Override
-    public void updateEventModified(Event event) {
-        event.updateEvent();
+    public void updateEventUpdated(Event e) {
+        e.updateEvent();
+        if (e.isRecurring() && e.getInstances() != null) {
+            for (var inst : e.getInstances()) {
+                if (inst.getId() == 0) {
+                    inst.setEventId(e.getId());
+                    inst.saveNewInstance();
+                } else {
+                    inst.updateInstance();
+                }
+            }
+        }
     }
 
     @Override
-    public void updateEventDeleted(Event event) {
-        event.deleteEvent();
+    public void updateEventDeleted(Event e) {
+        e.deleteEvent();
     }
 
     @Override
-    public void updateServiceCreated(Event event, Service service) {
-        service.saveNewService();
+    public void updateServiceCreated(Event e, Service s) {
+        s.setEventId(e.getId());
+        s.saveNewService();
     }
 
     @Override
-    public void updateServiceModified(Service service) {
-        service.updateService();
+    public void updateServiceUpdated(Service s) {
+        s.updateService();
+        if (s.isMenuApproved()) {
+            s.saveMenuProposal();
+        }
     }
 
     @Override
-    public void updateServiceDeleted(Service service) {
-        service.deleteService();
-    }
-
-    @Override
-    public void updateMenuAssigned(Service service, Menu menu) {
-        service.assignMenuToService(menu);
-    }
-
-    @Override
-    public void updateMenuRemoved(Service service) {
-        service.removeMenuFromService();
+    public void updateStaffRequested(Service s, StaffRequest sr) {
+        sr.setServiceId(s.getId());
+        sr.saveNewStaffRequest();
     }
 }
